@@ -1,0 +1,71 @@
+name: Sync Upstream & Auto Deploy
+
+on:
+  schedule:
+    # 每天 UTC 1:00 运行（北京时间 9:00）
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.check-sync.outputs.updated }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/mtvpls/MoonTVPlus.git
+
+      - name: Fetch upstream
+        run: git fetch upstream main
+
+      - name: Check for updates and sync
+        id: check-sync
+        run: |
+          LOCAL=$(git rev-parse HEAD)
+          UPSTREAM=$(git rev-parse upstream/main)
+          echo "Local commit:  $LOCAL"
+          echo "Upstream commit: $UPSTREAM"
+
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "=== 已是最新，无需同步 ==="
+            echo "updated=false" >> $GITHUB_OUTPUT
+          else
+            echo "=== 检测到上游更新，开始同步... ==="
+            git log --oneline HEAD..upstream/main | head -20
+            # 尝试合并上游更新
+            if git merge upstream/main --no-edit; then
+              git push origin main
+              echo "updated=true" >> $GITHUB_OUTPUT
+              echo "=== 同步成功，将触发 Cloudflare 部署 ==="
+            else
+              echo "=== 合并冲突，回退并强制同步上游（镜像模式）==="
+              git merge --abort
+              git reset --hard upstream/main
+              git push --force origin main
+              echo "updated=true" >> $GITHUB_OUTPUT
+              echo "=== 强制同步完成，将触发 Cloudflare 部署 ==="
+            fi
+          fi
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: sync
+    if: needs.sync.outputs.updated == 'true'
+    uses: ./.github/workflows/cloudflare-deploy.yml
+    secrets: inherit
