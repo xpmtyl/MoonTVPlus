@@ -2,8 +2,8 @@ name: Sync Upstream & Auto Deploy
 
 on:
   schedule:
-    # 每天 UTC 1:00 运行（北京时间 9:00）
-    - cron: '0 1 * * *'
+    # 每月 1 号和 16 号 UTC 1:00 运行（北京时间 9:00），约每 15 天一次
+    - cron: '0 1 1,16 * *'
   workflow_dispatch:
 
 permissions:
