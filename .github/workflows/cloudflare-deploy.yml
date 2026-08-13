@@ -1,37 +1,29 @@
 name: Deploy to Cloudflare
-
 on:
   workflow_dispatch:
-
+  workflow_call:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: read
   deployments: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Pages
-
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'pnpm'
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Set environment variables
         run: |
           echo "BUILD_TARGET=cloudflare" >> $GITHUB_ENV
@@ -72,11 +64,9 @@ jobs:
           echo "WATCH_ROOM_EXTERNAL_SERVER_AUTH=${{ secrets.WATCH_ROOM_EXTERNAL_SERVER_AUTH }}" >> $GITHUB_ENV
           echo "WATCH_ROOM_EXTERNAL_SERVER_URL=${{ secrets.WATCH_ROOM_EXTERNAL_SERVER_URL }}" >> $GITHUB_ENV
           echo "WATCH_ROOM_SERVER_TYPE=${{ secrets.WATCH_ROOM_SERVER_TYPE }}" >> $GITHUB_ENV
-
       - name: Configure D1 Database in wrangler.toml
         run: |
           STORAGE_TYPE="${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
-
           if [ "$STORAGE_TYPE" != "d1" ]; then
             echo "Storage type is not d1 (current: $STORAGE_TYPE), removing D1 database configuration"
             # Remove the entire [[d1_databases]] section including the comment
@@ -91,7 +81,6 @@ jobs:
             echo "⚠️ Storage type is d1 but D1_DATABASE_ID secret not set"
             exit 1
           fi
-
       - name: Update wrangler.toml with environment variables
         run: |
           # Function to append variable to wrangler.toml if it has a value
@@ -102,7 +91,6 @@ jobs:
               echo "$var_name = \"$var_value\"" >> wrangler.toml
             fi
           }
-
           # Append all environment variables to wrangler.toml
           append_var "NEXT_PUBLIC_STORAGE_TYPE" "${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
           append_var "NEXT_PUBLIC_SITE_NAME" "${{ secrets.NEXT_PUBLIC_SITE_NAME }}"
@@ -143,41 +131,32 @@ jobs:
           
           echo "Updated wrangler.toml:"
           cat wrangler.toml
-
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
-
       - name: Install Wrangler
         run: pnpm add -g wrangler@4.60.0
-
       - name: Run D1 Database Migrations
         run: |
           STORAGE_TYPE="${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
-
           if [ "$STORAGE_TYPE" != "d1" ]; then
             echo "Storage type is not d1 (current: $STORAGE_TYPE), skipping D1 migrations"
             exit 0
           fi
-
           if [ -z "${{ secrets.D1_DATABASE_ID }}" ]; then
             echo "D1_DATABASE_ID not set, skipping migrations"
             exit 0
           fi
-
           echo "Running D1 database migrations..."
-
           for migration_file in ./migrations/*.sql; do
             if [ -f "$migration_file" ]; then
               echo "Executing migration: $(basename $migration_file)"
               wrangler d1 execute moontvplus --remote --file="$migration_file" || echo "⚠️ Migration may have been skipped (already applied)"
             fi
           done
-
           echo "✅ Migrations completed"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
